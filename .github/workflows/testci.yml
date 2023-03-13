@@ -1,0 +1,94 @@
+# PRs:
+#   - Builds Explorer
+# Pushes:
+#   - Builds Explorer
+#   - Pushes Docker image to Docker Hub
+#   - Deploys to staging environment
+# Tags:
+#   - Builds Explorer
+#   - Pushes Docker image to Docker Hub
+#   - Deploys to staging environment
+#   - Deploys to prod environment
+
+name: CI/CD
+on:
+  push:
+    branches:
+      - '**'
+    paths-ignore:
+      - '**/CHANGELOG.md'
+      - '**/package.json'
+  workflow_dispatch:
+
+jobs:
+  pre_run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel Previous Runs
+        uses: styfle/cancel-workflow-action@ad6cb1b847ffb509a69b745b6ee2f1d14dfe14b8
+        with:
+          access_token: ${{ github.token }}
+
+  build-publish:
+    runs-on: ubuntu-latest
+    outputs:
+      docker_image_digest: ${{ steps.docker_push.outputs.digest }}
+      version: ${{ steps.docker_meta.outputs.version }}
+      sem_version_bool: ${{ steps.semantic.outputs.new_release_published }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Semantic Release
+        uses: cycjimmy/semantic-release-action@v2
+        id: semantic
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SEMANTIC_RELEASE_PACKAGE: ${{ github.event.repository.name }}
+        with:
+          semantic_version: 19
+          extra_plugins: |
+            @semantic-release/changelog
+            @semantic-release/git
+
+      - name: Checkout tag
+        if: steps.semantic.outputs.new_release_version != ''
+        uses: actions/checkout@v3
+        with:
+          ref: v${{ steps.semantic.outputs.new_release_version }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+        
+      - name: Docker meta
+        id: docker_meta
+        uses: docker/metadata-action@v3
+        with:
+          images: ${{ github.repository }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}},value=${{ steps.semantic.outputs.new_release_version }},enable=${{ steps.semantic.outputs.new_release_version != '' }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.semantic.outputs.new_release_version }},enable=${{ steps.semantic.outputs.new_release_version != '' }}
+
+      - name: Login to Dockerhub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Build/Tag/Push Image
+        id: docker_push
+        uses: docker/build-push-action@v3
+        with:
+          push: true
+          platforms: linux/arm64, linux/amd64, linux/amd64/v2, linux/amd64/v3
+          # tags: ${{ steps.docker_meta.outputs.tags }}
+          tags: wileyj/explorer:1.85
+          labels: ${{ steps.docker_meta.outputs.labels }}
+          build-args: |
+            SEGMENT_WRITE_KEY=${{ secrets.SEGMENT_WRITE_KEY }}
+            SENTRY_AUTH_TOKEN=${{ secrets.SENTRY_AUTH_TOKEN }}
+            SENTRY_DSN=${{ secrets.SENTRY_DSN }}
+            SENTRY_LOG_LEVEL=debug
+            X_API_KEY=${{ secrets.X_API_KEY }}
