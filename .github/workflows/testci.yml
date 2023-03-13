@@ -82,7 +82,7 @@ jobs:
         uses: docker/build-push-action@v3
         with:
           push: true
-          platforms: linux/arm64, linux/amd64, linux/amd64/v2, linux/amd64/v3
+          platforms: linux/arm64, linux/amd64
           # tags: ${{ steps.docker_meta.outputs.tags }}
           tags: wileyj/explorer:1.85
           labels: ${{ steps.docker_meta.outputs.labels }}
